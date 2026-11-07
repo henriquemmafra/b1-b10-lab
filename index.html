@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#071017">
+<title>B1–B10 Lab | TC real + EBUS-TBNA</title>
+<style>
+:root{color-scheme:dark;--bg:#071017;--panel:#101d27;--panel2:#152633;--line:#28414e;--text:#e8f3f5;--muted:#9ab1bd;--cyan:#68dbea;--mint:#71dfb4;--amber:#e9c87d;--red:#f38c92}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+header{padding:15px max(20px,calc((100vw - 1380px)/2));border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:#0c1720}
+.logo{font-size:20px;font-weight:850;letter-spacing:-.05em}.logo span{color:var(--cyan)}.eyebrow{color:var(--muted);font-size:12px}
+small{color:var(--muted)}header a{margin-left:auto;color:var(--cyan);text-decoration:none;font-weight:650}
+main{max-width:1380px;padding:20px;margin:auto}
+h1{font-size:24px;letter-spacing:-.03em;margin:0 0 3px}h2{font-size:16px;margin:0 0 12px}h3{font-size:14px;margin:0 0 8px}p{margin:0 0 14px}
+.sub{color:var(--muted);max-width:940px}.tabbar{display:flex;gap:7px;flex-wrap:wrap;margin:18px 0}
+.tabbar button,.btn{background:#172d3b;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px 15px;font-weight:650;transition:background .15s}
+.tabbar button.active,.btn.primary{background:#164752;border-color:#3f8994;color:#ddfcff}
+.btn.ghost{background:transparent}.btn:disabled{opacity:.4;cursor:not-allowed}
+.layout{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:17px;min-width:0}
+.stack{display:grid;gap:15px}.status{border:1px solid #36515a;border-radius:10px;background:#102934;padding:10px 12px;color:#cceff2;min-height:44px;white-space:pre-wrap}
+.warn{color:#f3d49c}.error{color:#ffadb5}.muted{color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.row .btn{flex:1}
+label{display:block;font-size:12px;font-weight:650;color:#c4dce4;margin:9px 0 6px}
+input[type=range]{width:100%;accent-color:var(--cyan)}input[type=file]{width:100%;font-size:12px;color:var(--muted);margin:7px 0}
+.pill{font-size:11px;padding:4px 7px;border-radius:6px;border:1px solid #376578;color:#a4e4ed}
+#ctCanvas{width:100%;height:auto;background:#000;image-rendering:pixelated;cursor:crosshair;border-radius:9px;border:1px solid var(--line);aspect-ratio:1/1;object-fit:contain}
+#view3d{width:100%;height:min(67vh,665px);min-height:400px;border-radius:11px;overflow:hidden;position:relative;background:radial-gradient(circle at 50% 40%,#192f3a 0%,#060d13 70%);touch-action:none}
+#view3d canvas{display:block;width:100%;height:100%}.overlay{position:absolute;left:13px;top:13px;pointer-events:none;font-size:12px;line-height:1.7;background:rgba(3,12,19,.78);padding:7px 10px;border-radius:8px;max-width:70%}
+#view3d .bottom{position:absolute;bottom:11px;left:12px;right:12px;font-size:11px;text-align:center;color:#afc9d4;pointer-events:none}
+#ctSide{display:grid;grid-template-columns:minmax(0,1fr) 1fr;gap:15px;align-items:start;margin-top:15px}
+#details{min-height:78px;font-size:12px;color:var(--muted)}.metrics{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;margin:6px 0}
+.metrics b{color:var(--mint)}
+.hidden{display:none!important}
+#map{width:100%;max-height:380px;background:#0b1820;border:1px solid var(--line);border-radius:12px}
+.node{cursor:pointer}.node circle{fill:#4b6175;stroke:#b5c9d4;stroke-width:2;transition:.12s}.node text{fill:white;font-size:14px;font-weight:700;pointer-events:none;text-anchor:middle;dominant-baseline:central}.node.active circle{fill:#218b95;stroke:#a6f8ef;stroke-width:4}.node:hover circle{fill:#22788b}
+#usCanvas{width:100%;height:auto;background:#010609;border:1px solid #2b5360;border-radius:10px}
+.ebus-layout{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px}
+.ebus-images{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px}
+.note{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;margin-top:14px}
+#result{min-height:60px;margin:12px 0;color:#c6e5ed;white-space:pre-wrap}
+.badge{font-size:11px;color:var(--amber);letter-spacing:.04em}
+footer{max-width:1380px;margin:0 auto;padding:12px 20px 28px;color:var(--muted);font-size:12px}
+@media(max-width:1000px){.layout,.ebus-layout{grid-template-columns:1fr}.ebus-images{grid-template-columns:1fr 260px}}@media(max-width:680px){#ctSide,.ebus-images{grid-template-columns:1fr}#view3d{min-height:340px;height:54vh}main{padding:13px}header{padding:12px}}
+</style>
+</head>
+<body>
+<header><div class="logo">B1<span>–</span>B10 <span>LAB</span></div><div class="eyebrow">Protótipo independente · TC real & EBUS-TBNA</div><a href="https://henriquemmafra.github.io/b1-b10/">← Simulador original</a></header>
+<main>
+<h1>Laboratório de broncoscopia</h1>
+<p class="sub">Experimento de ensino: exploração de vias aéreas derivadas de DICOM e prática de EBUS-TBNA em cenários sintéticos. Não substitui segmentação revisada, planejamento clínico ou treinamento supervisionado.</p>
+<nav class="tabbar"><button class="active" data-tab="ct">TC → árvore brônquica</button><button data-tab="ebus">EBUS + punção linfonodal</button></nav>
+<section id="ctPage">
+<div class="layout">
+<div class="stack">
+<div class="panel">
+<h2>1. Importar TC</h2>
+<p class="muted">Escolha os DICOM de uma série volumétrica (arquivos individuais ou pasta). Os pixels são processados localmente neste navegador; não são enviados ao GitHub.</p>
+<label>Arquivos DICOM</label><input id="dicomFiles" type="file" multiple accept=".dcm,.dicom,application/dicom">
+<label>Pasta de DICOM</label><input id="dicomFolder" type="file" webkitdirectory directory multiple>
+<div class="row"><button class="btn primary" id="demo">Exemplo sintético</button><button class="btn ghost" id="clearCt">Limpar</button></div>
+<div class="note">Leitor experimental: DICOM CT monocromático, 16 bits, Little Endian sem compressão. Séries JPEG/JPEG2000, multiframe, orientações oblíquas ou formatos heterogêneos exigem um conversor externo validado. Remova identificadores pessoais antes de compartilhar capturas.</div>
+</div>
+<div class="panel">
+<h2>2. Selecionar a luz aérea</h2>
+<div id="ctInfo" class="muted">Carregue uma série ou escolha o exemplo.</div>
+<canvas id="ctCanvas" width="256" height="256" aria-label="Corte axial para seleção de ponto inicial"></canvas>
+<label>Corte axial <span id="sliceLabel">—</span></label><input type="range" id="slice" min="0" max="0" value="0" disabled>
+<label>Limiar de ar <span id="huLabel">−600 UH</span></label><input type="range" id="hu" min="-900" max="-300" value="-600" step="25">
+<div class="row"><button id="segment" class="btn primary" disabled>Segmentar a partir do ponto</button></div>
+<p class="muted" style="margin:9px 0 0;font-size:12px">Clique dentro da traqueia no corte axial para marcar uma semente. A máscara por crescimento de região pode vazar para o parênquima; revise visualmente o resultado.</p>
+</div>
+</div>
+<div class="stack">
+<div class="panel">
+<div class="row" style="justify-content:space-between"><h2 style="margin:0">3. Explorar o modelo</h2><span class="pill">Protótipo · não validado</span></div>
+<div class="row" style="margin:12px 0"><button class="btn primary" id="orbit">Visão 3D</button><button class="btn" id="fly">Visão interna</button><button class="btn" id="resetView">Recentrar</button></div>
+<div id="view3d"><div class="overlay" id="viewHint">Carregue a TC e segmente a luz da via aérea.<br>Ou inicie com o exemplo sintético.</div><div class="bottom">Visão 3D: arraste para girar, roda para zoom · Visão interna: W/S mover, setas orientar, Q/E subir/descer</div></div>
+<div class="metrics"><span>Voxels segmentados: <b id="count">0</b></span><span>Estado: <b id="maskStatus">Aguardando</b></span></div>
+<div class="status" id="ctStatus" role="status">Aguardando volume.</div>
+</div>
+<div class="panel">
+<h3>O que esta versão entrega</h3>
+<p id="details">Importação local de cortes DICOM compatíveis, visualização axial, seleção manual de semente, crescimento de região 3D e visualização de superfície com câmera exploratória. Não identifica automaticamente B1–B10 nem gera paredes histológicas ou mucosa realista.</p>
+</div>
+</div>
+</div>
+</section>
+<section id="ebusPage" class="hidden">
+<div class="ebus-layout">
+<div class="stack">
+<div class="panel">
+<h2>1. Escolha uma estação linfonodal</h2>
+<svg id="map" viewBox="0 0 560 365" role="img" aria-label="Esquema didático de vias aéreas e estações mediastinais">
+<path d="M280 20 L280 150 M280 150 Q260 197 172 250 M280 150 Q302 194 395 250 M172 250 Q127 279 80 327 M172 250 Q193 286 208 330 M395 250 Q429 282 482 323 M395 250 Q377 285 365 333" fill="none" stroke="#8cabb7" stroke-width="29" stroke-linecap="round" opacity=".23"/>
+<path d="M280 20 L280 150 M280 150 Q260 197 172 250 M280 150 Q302 194 395 250 M172 250 Q127 279 80 327 M172 250 Q193 286 208 330 M395 250 Q429 282 482 323 M395 250 Q377 285 365 333" fill="none" stroke="#a5c1cd" stroke-width="2.5"/>
+<path d="M320 52 Q352 108 338 164 Q378 205 421 225" fill="none" stroke="#b76468" stroke-width="22" opacity=".30"/>
+<path d="M242 60 Q204 125 218 155 Q207 198 187 230" fill="none" stroke="#5b9fc3" stroke-width="22" opacity=".30"/>
+<text x="12" y="25" fill="#8fa8b7" font-size="12">Esquema ilustrativo · não em escala</text>
+<g class="node" data-station="2R"><circle cx="345" cy="68" r="24"/><text x="345" y="68">2R</text></g>
+<g class="node" data-station="2L"><circle cx="214" cy="70" r="24"/><text x="214" y="70">2L</text></g>
+<g class="node" data-station="4R"><circle cx="346" cy="145" r="24"/><text x="346" y="145">4R</text></g>
+<g class="node" data-station="4L"><circle cx="209" cy="148" r="24"/><text x="209" y="148">4L</text></g>
+<g class="node" data-station="7"><circle cx="286" cy="224" r="27"/><text x="286" y="224">7</text></g>
+<g class="node" data-station="10R"><circle cx="423" cy="251" r="25"/><text x="423" y="251">10R</text></g>
+<g class="node" data-station="10L"><circle cx="143" cy="250" r="25"/><text x="143" y="250">10L</text></g>
+<g class="node" data-station="11R"><circle cx="462" cy="316" r="25"/><text x="462" y="316">11R</text></g>
+<g class="node" data-station="11L"><circle cx="103" cy="319" r="25"/><text x="103" y="319">11L</text></g>
+</svg>
+<p id="stationInfo" class="muted" style="margin:12px 0 0"></p>
+<div class="note">Estações baseadas na nomenclatura IASLC. O desenho é esquemático; posição, tamanho e acesso real dependem de imagem e anatomia do paciente. Esta versão não incorpora dados de TC do módulo ao lado.</div>
+</div>
+<div class="panel">
+<h2>2. Controle da agulha</h2>
+<label>Ângulo <span id="angleVal">0°</span></label><input type="range" id="angle" min="-45" max="45" value="0" step="1">
+<label>Profundidade <span id="depthVal">0 mm</span></label><input type="range" id="depth" min="0" max="85" value="0" step="1">
+<label style="display:flex;align-items:center;gap:10px"><input type="checkbox" id="doppler" checked> Ativar Doppler (vasos simulados)</label>
+<div class="row" style="margin-top:12px"><button class="btn primary" id="puncture">Simular punção</button><button class="btn" id="resetNeedle">Reiniciar</button></div>
+<div id="result" role="status">Selecione uma estação, posicione a agulha e avalie a janela de punção.</div>
+<div class="metrics"><span>Alvos atingidos: <b id="hits">0</b></span><span>Eventos vasculares: <b id="vascular">0</b></span></div>
+</div>
+</div>
+<div class="panel">
+<div class="row" style="justify-content:space-between"><h2 style="margin:0">EBUS convexo · imagem simulada</h2><span class="badge">CENÁRIO SINTÉTICO</span></div>
+<p class="muted" style="margin-top:8px">A imagem abaixo é gerada por computador: não representa ultrassom real nem reproduz com fidelidade artefatos, elastografia ou dinâmica do tecido.</p>
+<canvas id="usCanvas" width="700" height="490"></canvas>
+<div class="status" id="ebusStatus">Alinhe virtualmente a ponta e evite a trajetória vascular. Use Doppler antes de punção.</div>
+<div class="note">Conteúdo para ensino de orientação espacial e identificação de estações. Não é um simulador de segurança de punção com validação clínica. Nenhuma manobra deve ser transferida diretamente para prática em paciente.</div>
+</div>
+</div>
+</section>
+</main>
+<footer>B1–B10 Lab · implementação independente do simulador original · dados de pacientes permanecem no navegador durante esta sessão · uso exclusivamente educacional.</footer>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+const $=id=>document.getElementById(id);
+const tabs=document.querySelectorAll('[data-tab]');
+for(const t of tabs)t.addEventListener('click',()=>{tabs.forEach(b=>b.classList.toggle('active',b===t));$('ctPage').classList.toggle('hidden',t.dataset.tab!=='ct');$('ebusPage').classList.toggle('hidden',t.dataset.tab!=='ebus');if(t.dataset.tab==='ct')setTimeout(resize3D,50);else drawUS();});
+let vol=null,seed=null,mask=null,voxelCount=0,ctMode='orbit',camPos=null,fyaw=0,fpitch=0;
+let scene,camera,renderer,mesh,orbitTarget=new THREE.Vector3(),yaw=.7,pitch=.35,dist=300;
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const setStatus=(s,warning=false)=>{$('ctStatus').textContent=s;$('ctStatus').classList.toggle('warn',warning)};
+function parseDicom(buffer){
+ const dv=new DataView(buffer);let off=buffer.byteLength>132&&String.fromCharCode(...new Uint8Array(buffer,128,4))==='DICM'?132:0;
+ let syntax='1.2.840.10008.1.2.1',explicit=true,little=true;const out={};
+ const readString=(start,len)=>new TextDecoder('ascii').decode(new Uint8Array(buffer,start,Math.min(len,256))).replace(/\0/g,'').trim();
+ let guard=0;
+ while(off+8<=buffer.byteLength&&guard++<25000){
+  const group=dv.getUint16(off,true),element=dv.getUint16(off+2,true);
+  if(group!==2){explicit=syntax!=='1.2.840.10008.1.2';little=syntax!=='1.2.840.10008.1.2.2'}
+  const g=dv.getUint16(off,little),e=dv.getUint16(off+2,little);
+  let len,start,vr='';
+  if(g===2||explicit){
+   vr=String.fromCharCode(dv.getUint8(off+4),dv.getUint8(off+5));
+   if(['OB','OW','OF','SQ','UT','UN','OD','OL','UC','UR','OV','SV','UV'].includes(vr)){if(off+12>buffer.byteLength)break;len=dv.getUint32(off+8,little);start=off+12}
+   else{len=dv.getUint16(off+6,little);start=off+8}
+  }else{len=dv.getUint32(off+4,little);start=off+8}
+  if(!Number.isFinite(len)||len===0xffffffff)throw new Error('Sequências com comprimento indefinido não são suportadas nesta versão.');
+  if(start+len>buffer.byteLength)break;
+  const key=g.toString(16).padStart(4,'0')+e.toString(16).padStart(4,'0');
+  if(key==='00020010')syntax=readString(start,len);
+  if(['00280010','00280011','00280100','00280103','00280002'].includes(key))out[key]=dv.getUint16(start,little);
+  if(['00280030','00180050','00200032','00200037','00200013','00281052','00281053','00280004','00080060'].includes(key))out[key]=readString(start,len);
+  if(key==='7fe00010'){out.pixelOffset=start;out.pixelLength=len;out.syntax=syntax;out.buffer=buffer;return out}
+  off=start+len;
+ }
+ throw new Error('PixelData não encontrado.');
+}
+function decodeSlice(d){
+ if(!['1.2.840.10008.1.2.1','1.2.840.10008.1.2'].includes(d.syntax))throw new Error('Série comprimida ou sintaxe incompatível: '+d.syntax);
+ const rows=d['00280010'],cols=d['00280011'];
+ if(!rows||!cols||d['00280100']!==16||d['00280002']!==1||d.pixelLength<rows*cols*2)throw new Error('Somente CT monocromático 16 bits, frame único, sem compressão.');
+ const step=Math.max(1,Math.ceil(Math.max(rows,cols)/176)),w=Math.ceil(cols/step),h=Math.ceil(rows/step);
+ const slope=parseFloat(d['00281053']||'1'),intercept=parseFloat(d['00281052']||'0');
+ const dv=new DataView(d.buffer,d.pixelOffset,d.pixelLength),signed=d['00280103']===1;
+ const pixels=new Int16Array(w*h);
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+  const pos=((y*step)*cols+x*step)*2; const v=signed?dv.getInt16(pos,true):dv.getUint16(pos,true);
+  pixels[y*w+x]=clamp(Math.round(v*slope+intercept),-32768,32767);
+ }
+ const ps=(d['00280030']||'1\\1').split('\\').map(Number);
+ const ipp=(d['00200032']||'').split('\\').map(Number);
+ return {pixels,w,h,step,spacing:[(ps[1]||1)*step,(ps[0]||1)*step],z:Number.isFinite(ipp[2])?ipp[2]:null,instance:Number(d['00200013']||0),orient:d['00200037']||''};
+}
+async function loadFiles(files){
+ const arr=[...files].filter(f=>f.size>1000&&f.size<400e6);
+ if(!arr.length){setStatus('Nenhum arquivo selecionado.',true);return}
+ $('segment').disabled=true;seed=null;mask=null;clearMesh();setStatus('Lendo '+arr.length+' arquivo(s) DICOM no navegador...');
+ let slices=[],errors={};
+ for(let i=0;i<arr.length;i++){
+  try{const buffer=await arr[i].arrayBuffer();const d=parseDicom(buffer);slices.push(decodeSlice(d))}
+  catch(e){const k=e.message||'Erro desconhecido';errors[k]=(errors[k]||0)+1}
+  if(i%8===0){setStatus('Lendo '+(i+1)+'/'+arr.length+' arquivo(s) · aceitos: '+slices.length);await new Promise(r=>setTimeout(r,0))}
+ }
+ if(slices.length<3){setStatus('Não foi possível formar um volume. Aceitos: '+slices.length+'. '+JSON.stringify(errors),true);return}
+ const ref=slices[0];slices=slices.filter(s=>s.w===ref.w&&s.h===ref.h&&s.orient===ref.orient);
+ if(slices.length<3){setStatus('Série com geometria heterogênea.',true);return}
+ slices.sort((a,b)=>a.z!=null&&b.z!=null?a.z-b.z:a.instance-b.instance);
+ const sliceStep=Math.max(1,Math.ceil(slices.length/180));
+ const list=slices.filter((_,i)=>i%sliceStep===0);
+ const dz=slices.length>1&&slices[0].z!=null&&slices[1].z!=null?Math.abs(slices[1].z-slices[0].z)*sliceStep:(Number.parseFloat('2')*sliceStep);
+ vol={w:ref.w,h:ref.h,d:list.length,data:new Int16Array(ref.w*ref.h*list.length),spacing:[ref.spacing[0],ref.spacing[1],dz||2],synthetic:false};
+ for(let z=0;z<list.length;z++)vol.data.set(list[z].pixels,z*ref.w*ref.h);
+ $('ctInfo').textContent=ref.w+'×'+ref.h+'×'+list.length+' voxels amostrados · '+vol.spacing.map(v=>v.toFixed(1)).join(' / ')+' mm · DICOM';
+ $('slice').disabled=false;$('slice').max=vol.d-1;$('slice').value=Math.max(0,Math.floor(vol.d*.2));$('segment').disabled=false;drawCT();
+ setStatus('Volume carregado. Clique na luz traqueal para definir a semente. '+(Object.keys(errors).length?'Arquivos ignorados: '+JSON.stringify(errors):''));
+}
+$('dicomFiles').addEventListener('change',e=>loadFiles(e.target.files));$('dicomFolder').addEventListener('change',e=>loadFiles(e.target.files));
+const index=(x,y,z)=>x+y*vol.w+z*vol.w*vol.h;
+function makeDemo(){
+ const w=112,h=112,d=132,data=new Int16Array(w*h*d);data.fill(45);
+ const tubes=[
+ [[56,43,8],[56,45,39],6],[[56,45,39],[56,49,69],6],
+ [[56,49,69],[77,54,86],5],[[56,49,69],[35,54,85],5],
+ [[77,54,86],[92,59,110],3.5],[[77,54,86],[82,35,115],3],[[77,54,86],[65,76,115],3],
+ [[35,54,85],[22,46,110],3.5],[[35,54,85],[33,76,117],3],[[35,54,85],[45,35,109],3],
+ [[92,59,110],[101,72,128],2],[[22,46,110],[13,40,128],2]
+ ];
+ for(const [a,b,r] of tubes){
+  const min=[0,1,2].map(i=>Math.floor(Math.min(a[i],b[i])-r-1)),max=[0,1,2].map(i=>Math.ceil(Math.max(a[i],b[i])+r+1));
+  const dx=b[0]-a[0],dy=b[1]-a[1],dz=b[2]-a[2],len2=dx*dx+dy*dy+dz*dz;
+  for(let z=Math.max(0,min[2]);z<=Math.min(d-1,max[2]);z++)for(let y=Math.max(0,min[1]);y<=Math.min(h-1,max[1]);y++)for(let x=Math.max(0,min[0]);x<=Math.min(w-1,max[0]);x++){
+   const t=clamp(((x-a[0])*dx+(y-a[1])*dy+(z-a[2])*dz)/len2,0,1);
+   const dist2=(x-a[0]-t*dx)**2+(y-a[1]-t*dy)**2+(z-a[2]-t*dz)**2;
+   if(dist2<=r*r)data[x+y*w+z*w*h]=-950;
+  }
+ }
+ vol={w,h,d,data,spacing:[1.3,1.3,1.5],synthetic:true};seed={x:56,y:44,z:20};mask=null;clearMesh();
+ $('ctInfo').textContent='Exemplo sintético · 112×112×132 · NÃO representa um paciente';
+ $('slice').disabled=false;$('slice').max=d-1;$('slice').value=20;$('segment').disabled=false;drawCT();
+ setStatus('Exemplo sintético pronto. Semente indicada na traqueia. Clique em Segmentar.',false);
+}
+$('demo').addEventListener('click',makeDemo);
+$('clearCt').addEventListener('click',()=>{vol=null;mask=null;seed=null;clearMesh();$('segment').disabled=true;$('slice').disabled=true;$('ctInfo').textContent='Carregue uma série ou escolha o exemplo.';$('count').textContent='0';$('maskStatus').textContent='Aguardando';setStatus('Aguardando volume.');drawCT();});
+$('slice').addEventListener('input',drawCT);
+$('hu').addEventListener('input',()=>{$('huLabel').textContent=$('hu').value+' UH'});
+function drawCT(){
+ const canvas=$('ctCanvas'),ctx=canvas.getContext('2d');const w=vol?.w||256,h=vol?.h||256;canvas.width=w;canvas.height=h;let img=ctx.createImageData(w,h);
+ if(vol){const z=+($('slice').value),start=z*w*h;$('sliceLabel').textContent=(z+1)+' / '+vol.d;
+  for(let i=0;i<w*h;i++){const hu=vol.data[start+i],v=clamp(Math.round((hu+1300)/1600*255),0,255);img.data[i*4]=v;img.data[i*4+1]=v;img.data[i*4+2]=v;img.data[i*4+3]=255}
+ }else{for(let i=0;i<w*h;i++)img.data[i*4+3]=255;$('sliceLabel').textContent='—'}
+ ctx.putImageData(img,0,0);
+ if(seed&&vol&&+($('slice').value)===seed.z){ctx.strokeStyle='#4ff4dc';ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(seed.x,seed.y,5,0,Math.PI*2);ctx.moveTo(seed.x-9,seed.y);ctx.lineTo(seed.x+9,seed.y);ctx.moveTo(seed.x,seed.y-9);ctx.lineTo(seed.x,seed.y+9);ctx.stroke()}
+}
+$('ctCanvas').addEventListener('click',e=>{if(!vol)return;const r=e.currentTarget.getBoundingClientRect();seed={x:clamp(Math.floor((e.clientX-r.left)/r.width*vol.w),0,vol.w-1),y:clamp(Math.floor((e.clientY-r.top)/r.height*vol.h),0,vol.h-1),z:+$('slice').value};const hu=vol.data[index(seed.x,seed.y,seed.z)];setStatus('Semente em ('+[seed.x,seed.y,seed.z].join(', ')+'), '+hu+' UH. Ajuste o limiar e segmente.');drawCT()});
+async function segment(){
+ if(!vol||!seed)return setStatus('Marque uma semente na luz da via aérea.',true);
+ const threshold=+$('hu').value,w=vol.w,h=vol.h,d=vol.d,n=w*h*d,start=index(seed.x,seed.y,seed.z);
+ if(vol.data[start]>threshold)return setStatus('A semente ('+vol.data[start]+' UH) está acima do limiar. Clique no ar intraluminal.',true);
+ $('segment').disabled=true;setStatus('Crescimento de região 3D em execução...');
+ await new Promise(r=>setTimeout(r,25));
+ const visited=new Uint8Array(n),queue=new Int32Array(n),out=new Uint8Array(n);let front=0,back=1,cap=140000,limited=false;queue[0]=start;visited[start]=1;
+ const sx=seed.x,sy=seed.y,rx=w*.46,ry=h*.46,wh=w*h;
+ while(front<back&&front<cap){
+  const i=queue[front++],z=Math.floor(i/wh),rem=i-z*wh,y=Math.floor(rem/w),x=rem-y*w;
+  out[i]=1;
+  const neighbors=[[x-1,y,z],[x+1,y,z],[x,y-1,z],[x,y+1,z],[x,y,z-1],[x,y,z+1]];
+  for(const [nx,ny,nz]of neighbors){
+   if(nx<0||ny<0||nz<0||nx>=w||ny>=h||nz>=d||Math.abs(nx-sx)>rx||Math.abs(ny-sy)>ry)continue;
+   const ni=nx+ny*w+nz*wh;
+   if(visited[ni])continue;visited[ni]=1;
+   if(vol.data[ni]<=threshold&&back<n){queue[back++]=ni}
+  }
+  if(front%14000===0)await new Promise(r=>setTimeout(r,0));
+ }
+ limited=front>=cap&&front<back;mask=out;voxelCount=front;buildMesh();
+ $('count').textContent=voxelCount.toLocaleString('pt-BR');$('maskStatus').textContent=limited?'Limitada':'Gerada';$('segment').disabled=false;
+ const description='Máscara de '+voxelCount.toLocaleString('pt-BR')+' voxels. '+(limited?'ATENÇÃO: interrompida no limite de segurança; pode haver vazamento para o pulmão. ':'')+'Examine o modelo e a semente: segmentação preliminar e não validada.';
+ setStatus(description,limited);$('details').textContent=description+' A navegação interna é exploratória, não uma reprodução fiel da broncoscopia. Não é possível inferir linfonodos da máscara das vias aéreas.';
+}
+$('segment').addEventListener('click',()=>segment().catch(e=>{setStatus('Erro: '+e.message,true);$('segment').disabled=false}));
+function init3D(){
+ const el=$('view3d');scene=new THREE.Scene();scene.background=new THREE.Color('#061018');camera=new THREE.PerspectiveCamera(62,1,.2,2500);
+ renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));
+ el.insertBefore(renderer.domElement,el.firstChild);
+ scene.add(new THREE.HemisphereLight(0xaee8ff,0x38211c,2.1));
+ const light=new THREE.DirectionalLight(0xffffff,2.1);light.position.set(200,180,220);scene.add(light);
+ let dragging=false,prevX=0,prevY=0;
+ el.addEventListener('pointerdown',e=>{if(e.target!==renderer.domElement)return;dragging=true;prevX=e.clientX;prevY=e.clientY;el.setPointerCapture(e.pointerId)});
+ el.addEventListener('pointerup',()=>dragging=false);el.addEventListener('pointercancel',()=>dragging=false);
+ el.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-prevX,dy=e.clientY-prevY;prevX=e.clientX;prevY=e.clientY;if(ctMode==='orbit'){yaw-=dx*.007;pitch=clamp(pitch+dy*.007,-1.45,1.45)}else{fyaw-=dx*.005;fpitch=clamp(fpitch-dy*.005,-1.5,1.5)}});
+ el.addEventListener('wheel',e=>{e.preventDefault();if(ctMode==='orbit')dist=clamp(dist*Math.exp(e.deltaY*.001),30,1200)},{passive:false});
+ window.addEventListener('resize',resize3D);
+ function frame(){requestAnimationFrame(frame);if(!renderer)return;
+ if(ctMode==='orbit')camera.position.copy(orbitTarget).add(new THREE.Vector3(dist*Math.sin(yaw)*Math.cos(pitch),dist*Math.sin(pitch),dist*Math.cos(yaw)*Math.cos(pitch))),camera.lookAt(orbitTarget);
+ else if(camPos){camera.position.copy(camPos);const dir=new THREE.Vector3(Math.sin(fyaw)*Math.cos(fpitch),Math.sin(fpitch),Math.cos(fyaw)*Math.cos(fpitch));camera.lookAt(camPos.clone().add(dir));}
+ renderer.render(scene,camera)}
+ frame();resize3D();
+}
+function resize3D(){if(!renderer)return;const e=$('view3d');const w=e.clientWidth,h=e.clientHeight;if(w<1||h<1)return;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+function clearMesh(){if(mesh&&scene){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();mesh=null}}
+function buildMesh(){
+ clearMesh();if(!vol||!mask)return;
+ const {w,h,d,spacing}=vol,[sx,sy,sz]=spacing;
+ const P=[],N=[],maxFaces=90000,wh=w*h;
+ const face=(x,y,z,axis,sign)=>{
+  const x0=(x-w/2)*sx,x1=x0+sx,y0=(h/2-y)*sy,y1=y0-sy,z0=(z-d/2)*sz,z1=z0+sz;
+  let a,b,c,e,n;
+  if(axis===0){const X=sign>0?x1:x0;a=[X,y0,z0];b=[X,y1,z0];c=[X,y1,z1];e=[X,y0,z1];n=[sign,0,0]}
+  if(axis===1){const Y=sign>0?y0:y1;a=[x0,Y,z0];b=[x1,Y,z0];c=[x1,Y,z1];e=[x0,Y,z1];n=[0,sign,0]}
+  if(axis===2){const Z=sign>0?z1:z0;a=[x0,y0,Z];b=[x1,y0,Z];c=[x1,y1,Z];e=[x0,y1,Z];n=[0,0,sign]}
+  const verts=[a,b,c,a,c,e];for(const v of verts){P.push(...v);N.push(...n)}
+ };
+ let faces=0;const step=voxelCount>90000?2:1;
+ outer:for(let z=0;z<d;z+=step)for(let y=0;y<h;y+=step)for(let x=0;x<w;x+=step){
+  const i=x+y*w+z*wh;if(!mask[i])continue;
+  for(const [ax,dir,ni]of [[0,-1,x>0?i-1:-1],[0,1,x<w-1?i+1:-1],[1,-1,y<h-1?i+w:-1],[1,1,y>0?i-w:-1],[2,-1,z>0?i-wh:-1],[2,1,z<d-1?i+wh:-1]]){
+   if(ni<0||!mask[ni]){face(x,y,z,ax,dir);if(++faces>=maxFaces)break outer}
+  }
+ }
+ const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(P,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));geometry.computeBoundingSphere();
+ const material=new THREE.MeshStandardMaterial({color:0xc17d82,side:THREE.DoubleSide,roughness:.84,metalness:0,flatShading:true});
+ mesh=new THREE.Mesh(geometry,material);scene.add(mesh);
+ orbitTarget.set(0,0,0);dist=Math.max(170,Math.hypot(w*sx,h*sy,d*sz)*1.2);
+ setCtMode('orbit');
+ $('viewHint').innerHTML='Superfície extraída do volume '+(vol.synthetic?'<strong>sintético</strong>':'DICOM')+'.<br>Faces de voxels com renderização simplificada.';
+}
+function voxelFromPos(p){const x=Math.floor(p.x/vol.spacing[0]+vol.w/2),y=Math.floor(vol.h/2-p.y/vol.spacing[1]),z=Math.floor(p.z/vol.spacing[2]+vol.d/2);return{x,y,z}}
+function inside(p){if(!vol||!mask)return false;const{x,y,z}=voxelFromPos(p);return x>=0&&x<vol.w&&y>=0&&y<vol.h&&z>=0&&z<vol.d&&mask[index(x,y,z)]===1}
+function setCtMode(mode){if(!vol||!mask){setStatus('Primeiro gere uma máscara de vias aéreas.',true);return}
+ ctMode=mode;$('orbit').classList.toggle('primary',mode==='orbit');$('fly').classList.toggle('primary',mode==='fly');
+ if(mode==='fly'){const s=seed||{x:vol.w/2,y:vol.h/2,z:0};camPos=new THREE.Vector3((s.x+.5-vol.w/2)*vol.spacing[0],(vol.h/2-s.y-.5)*vol.spacing[1],(s.z+.5-vol.d/2)*vol.spacing[2]);fyaw=0;fpitch=0;if(!inside(camPos))setStatus('Ponto inicial fora da máscara. Escolha a semente dentro da luz.',true);else setStatus('Visão interna exploratória: W/S avança/recua, setas orientam, Q/E deslocam verticalmente. Movimento restrito à máscara.');}
+}
+$('orbit').addEventListener('click',()=>setCtMode('orbit'));$('fly').addEventListener('click',()=>setCtMode('fly'));
+$('resetView').addEventListener('click',()=>{yaw=.7;pitch=.35;if(mask)setCtMode(ctMode)});
+window.addEventListener('keydown',e=>{if(ctMode!=='fly'||$('ctPage').classList.contains('hidden')||!camPos||!mask||['INPUT','TEXTAREA'].includes(document.activeElement.tagName))return;
+ const k=e.key.toLowerCase();let delta=null;const forward=new THREE.Vector3(Math.sin(fyaw)*Math.cos(fpitch),Math.sin(fpitch),Math.cos(fyaw)*Math.cos(fpitch));
+ if(k==='arrowleft')fyaw+=.075;if(k==='arrowright')fyaw-=.075;if(k==='arrowup')fpitch=clamp(fpitch+.07,-1.5,1.5);if(k==='arrowdown')fpitch=clamp(fpitch-.07,-1.5,1.5);
+ if(k==='w')delta=forward.multiplyScalar(1.8);if(k==='s')delta=forward.multiplyScalar(-1.8);if(k==='q')delta=new THREE.Vector3(0,1.8,0);if(k==='e')delta=new THREE.Vector3(0,-1.8,0);
+ if(delta){const next=camPos.clone().add(delta);if(inside(next))camPos.copy(next)}
+ if(['arrowleft','arrowright','arrowup','arrowdown','w','s','q','e'].includes(k))e.preventDefault();
+});
+try{init3D()}catch(e){setStatus('WebGL indisponível: '+e.message,true)}
+drawCT();
+// EBUS station training — not patient-specific.
+const stations={
+ '2R':['Paratraqueal superior direita','Entre a borda superior do manúbrio e a borda inferior da veia braquiocefálica esquerda, à direita da borda lateral esquerda da traqueia.'],
+ '2L':['Paratraqueal superior esquerda','Acima da borda superior do arco aórtico, à esquerda da borda lateral esquerda da traqueia.'],
+ '4R':['Paratraqueal inferior direita','Da borda inferior da veia braquiocefálica esquerda à borda inferior da veia ázigos.'],
+ '4L':['Paratraqueal inferior esquerda','Da borda superior do arco aórtico à borda superior da artéria pulmonar esquerda, à esquerda da borda lateral esquerda da traqueia.'],
+ '7':['Subcarinal','Da carina até o limite inferior subcarinal conforme critérios IASLC; avaliar relação com esôfago, átrios e vasos.'],
+ '10R':['Hilar direita','Adjacente ao brônquio principal direito e aos vasos hilares correspondentes.'],
+ '10L':['Hilar esquerda','Adjacente ao brônquio principal esquerdo e aos vasos hilares correspondentes.'],
+ '11R':['Interlobar direita','Entre a origem de brônquios lobares, ao longo do território interlobar direito.'],
+ '11L':['Interlobar esquerda','Entre a origem de brônquios lobares, ao longo do território interlobar esquerdo.']
+};
+let station='7',hits=0,vascular=0,angle=0,depth=0,doppler=true;
+function chooseStation(id){station=id;document.querySelectorAll('.node').forEach(n=>n.classList.toggle('active',n.dataset.station===id));$('stationInfo').innerHTML='<strong>Estação '+id+' · '+stations[id][0]+'</strong><div class="muted">'+stations[id][1]+'</div>';$('result').textContent='Estação '+id+' selecionada. Ajuste o trajeto da agulha.';drawUS()}
+document.querySelectorAll('.node').forEach(el=>el.addEventListener('click',()=>chooseStation(el.dataset.station)));
+function makeUS(){
+ const c=$('usCanvas'),ctx=c.getContext('2d'),w=c.width,h=c.height;
+ ctx.fillStyle='#02080b';ctx.fillRect(0,0,w,h);
+ const cx=w/2,cy=h+17,r=620;
+ ctx.save();ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,-2.12,-1.02);ctx.closePath();ctx.clip();
+ const im=ctx.createImageData(w,h);
+ for(let y=0;y<h;y+=2)for(let x=0;x<w;x+=2){
+  const sectorAngle=Math.atan2(y-cy,x-cx), radius=Math.hypot(x-cx,y-cy);
+  if(sectorAngle < -2.12 || sectorAngle > -1.02 || radius > r)continue;
+  const wave=Math.sin(x*.29+y*.09)*11+Math.sin(y*.42-x*.06)*12;
+  const pseudo=((x*43+y*173+station.charCodeAt(0)*59)*17011)%251;
+  const v=clamp(Math.floor(34+pseudo*.37+wave),8,180);
+  for(let a=0;a<2;a++)for(let b=0;b<2;b++){const i=((y+b)*w+x+a)*4;im.data[i]=v;im.data[i+1]=v+5;im.data[i+2]=v+9;im.data[i+3]=255}
+ }
+ ctx.putImageData(im,0,0);ctx.restore();
+ // Sector fan overlay
+ ctx.strokeStyle='#3b9ba7';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+r*Math.cos(-2.12),cy+r*Math.sin(-2.12));ctx.moveTo(cx,cy);ctx.lineTo(cx+r*Math.cos(-1.02),cy+r*Math.sin(-1.02));ctx.stroke();
+ // Lymph node target, intentionally synthetic and positionally comparable between stations.
+ const tx=350+((station.charCodeAt(0)%3)-1)*28,ty=215,rx=100,ry=54;
+ const grad=ctx.createRadialGradient(tx-10,ty-8,4,tx,ty,110);grad.addColorStop(0,'#303d47');grad.addColorStop(.75,'#101b24');grad.addColorStop(1,'#899ea8');
+ ctx.save();ctx.translate(tx,ty);ctx.rotate(-.12);ctx.beginPath();ctx.ellipse(0,0,rx,ry,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();ctx.lineWidth=3;ctx.strokeStyle='#b2ced5';ctx.stroke();ctx.restore();
+ const vx=487,vy=317,vrx=38,vry=26;
+ if(doppler){ctx.save();ctx.beginPath();ctx.ellipse(vx,vy,vrx,vry,-.2,0,Math.PI*2);ctx.fillStyle='rgba(222,65,75,.86)';ctx.fill();ctx.strokeStyle='#59c8fa';ctx.lineWidth=5;ctx.stroke();ctx.restore();}
+ const rad=angle*Math.PI/180,nx=cx+Math.sin(rad)*depth*5,ny=cy-Math.cos(rad)*depth*5;
+ ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(nx,ny);ctx.strokeStyle='#ffe39b';ctx.lineWidth=3;ctx.stroke();ctx.beginPath();ctx.arc(nx,ny,6,0,Math.PI*2);ctx.fillStyle='#ffecbc';ctx.fill();
+ ctx.fillStyle='#bed8e0';ctx.font='bold 17px system-ui';ctx.fillText('EBUS · ESTAÇÃO '+station,20,28);
+ ctx.font='13px monospace';ctx.fillText('SIMULAÇÃO — SEM DADOS DO PACIENTE',20,50);ctx.fillText('Prof. '+depth+' mm · Ângulo '+angle+'°',20,h-18);
+ return{tx,ty,rx,ry,vx,vy,vrx,vry,nx,ny,cx,cy};
+}
+let hitboxes;function drawUS(){hitboxes=makeUS()}
+$('angle').addEventListener('input',e=>{angle=+e.target.value;$('angleVal').textContent=angle+'°';drawUS()});
+$('depth').addEventListener('input',e=>{depth=+e.target.value;$('depthVal').textContent=depth+' mm';drawUS()});
+$('doppler').addEventListener('change',e=>{doppler=e.target.checked;drawUS()});
+$('resetNeedle').addEventListener('click',()=>{angle=0;depth=0;$('angle').value=0;$('depth').value=0;$('angleVal').textContent='0°';$('depthVal').textContent='0 mm';$('result').textContent='Agulha recolhida.';drawUS()});
+$('puncture').addEventListener('click',()=>{
+ const {tx,ty,rx,ry,vx,vy,vrx,vry,nx,ny,cx,cy}=hitboxes;
+ if(depth===0){$('result').textContent='Avance a agulha antes de simular a punção.';return}
+ let vessel=false;for(let t=0;t<=1;t+=.0125){const px=cx+(nx-cx)*t,py=cy+(ny-cy)*t;if(((px-vx)/vrx)**2+((py-vy)/vry)**2<=1){vessel=true;break}}
+ const within=((nx-tx)/rx)**2+((ny-ty)/ry)**2<=1;
+ if(vessel){vascular++;$('result').textContent='ALERTA: a trajetória virtual cruzou uma estrutura vascular simulada. Revise o trajeto e a avaliação Doppler.';$('ebusStatus').textContent='Eventos vasculares simulados: '+vascular+'. Não use esta geometria para decisão clínica.'}
+ else if(within){hits++;$('result').textContent='Alvo linfonodal virtual atingido na estação '+station+'. Avalie a identidade anatômica do alvo e a adequação do material em cenário supervisionado.';$('ebusStatus').textContent='Alvo sintético atingido. Não equivale a punção segura ou amostra diagnóstica.'}
+ else{$('result').textContent='A ponta da agulha não está dentro do alvo. Ajuste ângulo/profundidade e reavalie o trajeto.'}
+ $('hits').textContent=hits;$('vascular').textContent=vascular;
+});
+chooseStation('7');
+</script>
+</body>
+</html>
