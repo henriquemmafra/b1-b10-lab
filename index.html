@@ -523,7 +523,8 @@ function clearMesh(){
  if(mesh&&scene){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();mesh=null}
 }
 function buildMesh(){
- clearMesh();if(!vol||!mask)return;
+ if(mesh&&scene){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();mesh=null}
+ if(!vol||!mask)return;
  const {w,h,d,spacing}=vol,[sx,sy,sz]=spacing;
  const P=[],N=[],maxFaces=90000,wh=w*h;
  const face=(x,y,z,axis,sign)=>{
