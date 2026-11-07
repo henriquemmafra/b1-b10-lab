@@ -62,6 +62,7 @@ footer{max-width:1380px;margin:0 auto;padding:12px 20px 28px;color:var(--muted);
 <label>Pasta de DICOM (recomendada)</label><input id="dicomFolder" type="file" webkitdirectory directory multiple>
 <label>Série de TC reconhecida</label><select id="seriesChoice" disabled><option>Carregue um exame primeiro</option></select>
 <div id="importReport" class="import-report muted" role="status" aria-live="polite">O leitor reconhece arquivos DICOM mesmo sem extensão e tenta encontrar automaticamente a série axial de TC.</div>
+<button id="copyImport" type="button" class="btn ghost" style="width:100%;margin-top:7px">Copiar diagnóstico técnico (sem nomes de arquivos)</button>
 <div class="row"><button class="btn primary" id="demo">Exemplo sintético</button><button class="btn ghost" id="clearCt">Limpar</button></div>
 <div class="note">Importador experimental: arquivos DICOM sem extensão e pastas com várias séries são reconhecidos. Aceita TC monocromática 16 bits sem compressão; JPEG/JPEG2000, multiframe e ZIP precisam ser convertidos ou extraídos. O relatório mostra por que arquivos foram ignorados, sem exibir dados pessoais. Não envie exames identificáveis ao repositório público.</div>
 </div>
@@ -135,6 +136,7 @@ footer{max-width:1380px;margin:0 auto;padding:12px 20px 28px;color:var(--muted);
 </section>
 </main>
 <footer>B1–B10 Lab · implementação independente do simulador original · dados de pacientes permanecem no navegador durante esta sessão · uso exclusivamente educacional.</footer>
+<script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
 const $=id=>document.getElementById(id);
@@ -148,12 +150,49 @@ const setStatus=(s,warning=false)=>{$('ctStatus').textContent=s;$('ctStatus').cl
 const importedSeries=new Map();
 const importStats={total:0,parsed:0,rejected:new Map()};
 const bump=(key)=>importStats.rejected.set(key,(importStats.rejected.get(key)||0)+1);
+function parseWithDicomParser(buffer){
+ if(!window.dicomParser)return null;
+ const byteArray=new Uint8Array(buffer);
+ const hasMagic=buffer.byteLength>=132&&String.fromCharCode(...byteArray.subarray(128,132))==='DICM';
+ let last;
+ const attempts=hasMagic?[{}]:[
+   {TransferSyntaxUID:'1.2.840.10008.1.2.1'},
+   {TransferSyntaxUID:'1.2.840.10008.1.2'}
+ ];
+ for(const opts of attempts){
+  try{
+   const ds=window.dicomParser.parseDicom(byteArray,{...opts,untilTag:'x7fe00010'});
+   const get=tag=>ds.string('x'+tag);
+   const u16=tag=>ds.uint16('x'+tag);
+   const pe=ds.elements.x7fe00010;
+   if(!pe)throw new Error('Arquivo DICOM sem imagem Pixel Data (DICOMDIR, SR ou imagem não convencional)');
+   const uid=(get('00020010')||opts.TransferSyntaxUID||'1.2.840.10008.1.2.1').trim();
+   const o={syntax:uid,buffer,pixelOffset:pe.dataOffset,pixelLength:pe.length,
+     little:uid!=='1.2.840.10008.1.2.2'};
+   for(const tag of ['00280010','00280011','00280100','00280103','00280002'])o[tag]=u16(tag);
+   for(const tag of ['00280030','00180050','00200032','00200037','00200013','00281052','00281053','00280004','00080060','0020000e','0020000d','0008103e','00280008','00080016'])o[tag]=get(tag);
+   return o;
+  }catch(err){last=err}
+ }
+ throw new Error('Leitura DICOM: '+String(last?.message||last||'formato incompatível'));
+}
+function describeInputFormat(buffer,file){
+ const b=new Uint8Array(buffer,0,Math.min(144,buffer.byteLength));
+ if(b.length>=4&&b[0]===0x50&&b[1]===0x4b)return 'Arquivo ZIP (extraia antes)';
+ if(b.length>=4&&b[0]===0x49&&b[1]===0x49&&b[2]===0x2a)return 'Arquivo TIFF, não DICOM';
+ if(b.length>=4&&b[0]===0x89&&b[1]===0x50)return 'Imagem PNG, não DICOM';
+ if(b.length>=3&&b[0]===0xff&&b[1]===0xd8)return 'Imagem JPEG isolada, não DICOM';
+ if(b.length>=132&&String.fromCharCode(...b.subarray(128,132))==='DICM')return 'DICOM Part 10';
+ if(b.length>=4&&[0x0002,0x0008,0x0010,0x0020,0x0028].includes(b[0]+256*b[1]))return 'Possível DICOM sem preâmbulo';
+ if(/\.zip$/i.test(file.name))return 'Arquivo ZIP (extraia antes)';
+ return 'Arquivo sem assinatura DICOM reconhecida';
+}
 function parseDicom(buffer){
  const dv=new DataView(buffer);
- if(buffer.byteLength<160)throw new Error('Arquivo vazio ou pequeno demais');
- let off=new TextDecoder('ascii').decode(new Uint8Array(buffer,128,4))==='DICM'?132:0;
- let syntax='1.2.840.10008.1.2.1',meta=true,explicit=true,little=true,seen=false;
- if(off===0){const a=dv.getUint8(4),b=dv.getUint8(5);explicit=a>=65&&a<=90&&b>=65&&b<=90;}
+ if(buffer.byteLength<16)throw new Error('Arquivo vazio ou pequeno demais');
+ let off=buffer.byteLength>=132&&new TextDecoder('ascii').decode(new Uint8Array(buffer,128,4))==='DICM'?132:0;
+ let syntax='1.2.840.10008.1.2.1',meta=off===132||dv.getUint16(0,true)===2,explicit=true,little=true,seen=false;
+ if(off===0&&!meta){const a=dv.getUint8(4),b=dv.getUint8(5);explicit=a>=65&&a<=90&&b>=65&&b<=90;}
  const out={syntax};
  const ascii=(p,n)=>new TextDecoder('ascii').decode(new Uint8Array(buffer,p,Math.min(n,256))).replace(/\0/g,'').trim();
  const u16=(p,l)=>dv.getUint16(p,l);
@@ -232,6 +271,7 @@ function reportImport(){
  'Séries detectadas: '+importedSeries.size];
  for(const group of importedSeries.values())lines.push('• '+group.slices.length+' cortes · '+group.description+' · '+group.w+'×'+group.h);
  if(importStats.rejected.size){lines.push('Arquivos ignorados:');for(const [why,n] of [...importStats.rejected].sort((a,b)=>b[1]-a[1]))lines.push('• '+n+'× '+why);}
+ if(!importStats.parsed)lines.push('SUGESTÃO: copie este diagnóstico; não é necessário compartilhar nomes, caminhos ou imagens do paciente.');
  $('importReport').textContent=lines.join('\n');
 }
 function showSeries(key){
@@ -263,7 +303,16 @@ async function loadFiles(files){
   const f=arr[i];
   try{
    if(/\.zip$/i.test(f.name))throw new Error('ZIP: extraia a pasta antes de importar');
-   const d=parseDicom(await f.arrayBuffer()),slice=decodeSlice(d);
+   const buffer=await f.arrayBuffer();
+   let d;
+   try{d=parseWithDicomParser(buffer)||parseDicom(buffer);}
+   catch(err){
+    const msg=String(err.message||err);
+    const format=describeInputFormat(buffer,f);
+    if(format==='DICOM Part 10'||format==='Possível DICOM sem preâmbulo')throw new Error(format+': '+msg.slice(0,140));
+    throw new Error(format);
+   }
+   const slice=decodeSlice(d);
    const key=slice.series+'|'+slice.w+'x'+slice.h+'|'+slice.orient;
    if(!importedSeries.has(key))importedSeries.set(key,{slices:[],description:slice.description,w:slice.w,h:slice.h});
    importedSeries.get(key).slices.push(slice);importStats.parsed++;
@@ -284,6 +333,11 @@ async function loadFiles(files){
  if(importStats.rejected.size)setStatus('Série selecionada com sucesso. Outros arquivos foram ignorados; veja motivos em "Importação".',false);
 }
 $('seriesChoice').addEventListener('change',e=>showSeries(e.target.value));
+$('copyImport').addEventListener('click',async()=>{
+ const report=$('importReport').textContent.replace(/^• \d+ cortes · .* · (\d+×\d+)$/gm,'• Série de TC: $1');
+ try{await navigator.clipboard.writeText(report);$('copyImport').textContent='Diagnóstico copiado';}
+ catch(e){const box=document.createElement('textarea');box.value=report;box.style.width='100%';box.rows=7;$('importReport').after(box);box.focus();box.select();$('copyImport').textContent='Selecione e copie o texto abaixo';}
+});
 $('dicomFiles').addEventListener('change',e=>loadFiles(e.target.files).catch(err=>setStatus('Falha na importação: '+err.message,true)));
 $('dicomFolder').addEventListener('change',e=>loadFiles(e.target.files).catch(err=>setStatus('Falha na importação: '+err.message,true)));
 const index=(x,y,z)=>x+y*vol.w+z*vol.w*vol.h;
