@@ -25,6 +25,7 @@ h1{font-size:24px;letter-spacing:-.03em;margin:0 0 3px}h2{font-size:16px;margin:
 label{display:block;font-size:12px;font-weight:650;color:#c4dce4;margin:9px 0 6px}
 input[type=range]{width:100%;accent-color:var(--cyan)}input[type=file]{width:100%;font-size:12px;color:var(--muted);margin:7px 0}
 .pill{font-size:11px;padding:4px 7px;border-radius:6px;border:1px solid #376578;color:#a4e4ed}
+select{width:100%;padding:10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text)}.import-report{font-size:12px;margin:10px 0;padding:10px;background:#0a1720;border:1px solid var(--line);border-radius:9px;max-height:190px;overflow:auto;white-space:pre-wrap}
 #ctCanvas{width:100%;height:auto;background:#000;image-rendering:pixelated;cursor:crosshair;border-radius:9px;border:1px solid var(--line);aspect-ratio:1/1;object-fit:contain}
 #view3d{width:100%;height:min(67vh,665px);min-height:400px;border-radius:11px;overflow:hidden;position:relative;background:radial-gradient(circle at 50% 40%,#192f3a 0%,#060d13 70%);touch-action:none}
 #view3d canvas{display:block;width:100%;height:100%}.overlay{position:absolute;left:13px;top:13px;pointer-events:none;font-size:12px;line-height:1.7;background:rgba(3,12,19,.78);padding:7px 10px;border-radius:8px;max-width:70%}
@@ -57,10 +58,12 @@ footer{max-width:1380px;margin:0 auto;padding:12px 20px 28px;color:var(--muted);
 <div class="panel">
 <h2>1. Importar TC</h2>
 <p class="muted">Escolha os DICOM de uma série volumétrica (arquivos individuais ou pasta). Os pixels são processados localmente neste navegador; não são enviados ao GitHub.</p>
-<label>Arquivos DICOM</label><input id="dicomFiles" type="file" multiple accept=".dcm,.dicom,application/dicom">
-<label>Pasta de DICOM</label><input id="dicomFolder" type="file" webkitdirectory directory multiple>
+<label>Arquivos DICOM</label><input id="dicomFiles" type="file" multiple>
+<label>Pasta de DICOM (recomendada)</label><input id="dicomFolder" type="file" webkitdirectory directory multiple>
+<label>Série de TC reconhecida</label><select id="seriesChoice" disabled><option>Carregue um exame primeiro</option></select>
+<div id="importReport" class="import-report muted" role="status" aria-live="polite">O leitor reconhece arquivos DICOM mesmo sem extensão e tenta encontrar automaticamente a série axial de TC.</div>
 <div class="row"><button class="btn primary" id="demo">Exemplo sintético</button><button class="btn ghost" id="clearCt">Limpar</button></div>
-<div class="note">Leitor experimental: DICOM CT monocromático, 16 bits, Little Endian sem compressão. Séries JPEG/JPEG2000, multiframe, orientações oblíquas ou formatos heterogêneos exigem um conversor externo validado. Remova identificadores pessoais antes de compartilhar capturas.</div>
+<div class="note">Importador experimental: arquivos DICOM sem extensão e pastas com várias séries são reconhecidos. Aceita TC monocromática 16 bits sem compressão; JPEG/JPEG2000, multiframe e ZIP precisam ser convertidos ou extraídos. O relatório mostra por que arquivos foram ignorados, sem exibir dados pessoais. Não envie exames identificáveis ao repositório público.</div>
 </div>
 <div class="panel">
 <h2>2. Selecionar a luz aérea</h2>
@@ -141,72 +144,148 @@ let vol=null,seed=null,mask=null,voxelCount=0,ctMode='orbit',camPos=null,fyaw=0,
 let scene,camera,renderer,mesh,orbitTarget=new THREE.Vector3(),yaw=.7,pitch=.35,dist=300;
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const setStatus=(s,warning=false)=>{$('ctStatus').textContent=s;$('ctStatus').classList.toggle('warn',warning)};
+// Importador de TC DICOM: reconhecimento de series, arquivos sem extensao e relatorio de erros.
+const importedSeries=new Map();
+const importStats={total:0,parsed:0,rejected:new Map()};
+const bump=(key)=>importStats.rejected.set(key,(importStats.rejected.get(key)||0)+1);
 function parseDicom(buffer){
- const dv=new DataView(buffer);let off=buffer.byteLength>132&&String.fromCharCode(...new Uint8Array(buffer,128,4))==='DICM'?132:0;
- let syntax='1.2.840.10008.1.2.1',explicit=true,little=true;const out={};
- const readString=(start,len)=>new TextDecoder('ascii').decode(new Uint8Array(buffer,start,Math.min(len,256))).replace(/\0/g,'').trim();
+ const dv=new DataView(buffer);
+ if(buffer.byteLength<160)throw new Error('Arquivo vazio ou pequeno demais');
+ let off=new TextDecoder('ascii').decode(new Uint8Array(buffer,128,4))==='DICM'?132:0;
+ let syntax='1.2.840.10008.1.2.1',meta=true,explicit=true,little=true,seen=false;
+ if(off===0){const a=dv.getUint8(4),b=dv.getUint8(5);explicit=a>=65&&a<=90&&b>=65&&b<=90;}
+ const out={syntax};
+ const ascii=(p,n)=>new TextDecoder('ascii').decode(new Uint8Array(buffer,p,Math.min(n,256))).replace(/\0/g,'').trim();
+ const u16=(p,l)=>dv.getUint16(p,l);
  let guard=0;
- while(off+8<=buffer.byteLength&&guard++<25000){
-  const group=dv.getUint16(off,true),element=dv.getUint16(off+2,true);
-  if(group!==2){explicit=syntax!=='1.2.840.10008.1.2';little=syntax!=='1.2.840.10008.1.2.2'}
-  const g=dv.getUint16(off,little),e=dv.getUint16(off+2,little);
-  let len,start,vr='';
-  if(g===2||explicit){
+ while(off+8<=buffer.byteLength&&guard++<35000){
+  if(meta&&u16(off,true)!==2){
+   meta=false;explicit=syntax!=='1.2.840.10008.1.2';little=syntax!=='1.2.840.10008.1.2.2';
+   if(!little)throw new Error('DICOM Big Endian não suportado');
+  }
+  const g=u16(off,meta?true:little),e=u16(off+2,meta?true:little);
+  if(!seen&&!meta&&g>0x7fe0)throw new Error('Formato DICOM não reconhecido');
+  let len,p,vr='';
+  if(meta||explicit){
    vr=String.fromCharCode(dv.getUint8(off+4),dv.getUint8(off+5));
-   if(['OB','OW','OF','SQ','UT','UN','OD','OL','UC','UR','OV','SV','UV'].includes(vr)){if(off+12>buffer.byteLength)break;len=dv.getUint32(off+8,little);start=off+12}
-   else{len=dv.getUint16(off+6,little);start=off+8}
-  }else{len=dv.getUint32(off+4,little);start=off+8}
-  if(!Number.isFinite(len)||len===0xffffffff)throw new Error('Sequências com comprimento indefinido não são suportadas nesta versão.');
-  if(start+len>buffer.byteLength)break;
-  const key=g.toString(16).padStart(4,'0')+e.toString(16).padStart(4,'0');
-  if(key==='00020010')syntax=readString(start,len);
-  if(['00280010','00280011','00280100','00280103','00280002'].includes(key))out[key]=dv.getUint16(start,little);
-  if(['00280030','00180050','00200032','00200037','00200013','00281052','00281053','00280004','00080060'].includes(key))out[key]=readString(start,len);
-  if(key==='7fe00010'){out.pixelOffset=start;out.pixelLength=len;out.syntax=syntax;out.buffer=buffer;return out}
-  off=start+len;
+   if(!/^[A-Z]{2}$/.test(vr))throw new Error('Cabeçalho DICOM ilegível ou sintaxe não suportada');
+   if(['OB','OW','OF','SQ','UT','UN','OD','OL','UC','UR','OV','SV','UV'].includes(vr)){
+    if(off+12>buffer.byteLength)break;
+    len=dv.getUint32(off+8,meta?true:little);p=off+12;
+   }else{len=u16(off+6,meta?true:little);p=off+8;}
+  }else{len=dv.getUint32(off+4,little);p=off+8;}
+  const tag=g.toString(16).padStart(4,'0')+e.toString(16).padStart(4,'0');
+  if(tag==='00020010'){syntax=ascii(p,len);out.syntax=syntax;}
+  if(len===0xffffffff){
+   if(tag==='7fe00010')throw new Error('Pixels comprimidos ou encapsulados (JPEG/JPEG2000/RLE)');
+   // Skip an undefined-length sequence by scanning for its delimiter.
+   // Nested undefined sequences without a matching delimiter are diagnosed below.
+   let next=-1;
+   for(let q=p;q+8<=buffer.byteLength;q+=2){
+    if(dv.getUint16(q,little)===0xfffe&&dv.getUint16(q+2,little)===0xe0dd){next=q+8;break;}
+   }
+   if(next<0)throw new Error('Sequência DICOM aninhada não suportada');
+   off=next;continue;
+  }
+  if(p+len>buffer.byteLength)throw new Error('Arquivo DICOM incompleto ou truncado');
+  if(['00280010','00280011','00280100','00280103','00280002','00280101'].includes(tag))out[tag]=u16(p,little);
+  if(['00280030','00180050','00200032','00200037','00200013','00281052','00281053','00280004','00080060','0020000e','0020000d','0008103e','00280008','00080016'].includes(tag))out[tag]=ascii(p,len);
+  if(tag==='7fe00010'){
+   out.pixelOffset=p;out.pixelLength=len;out.buffer=buffer;out.little=little;
+   return out;
+  }
+  off=p+len;seen=true;
  }
- throw new Error('PixelData não encontrado.');
+ throw new Error('Dados de imagem não encontrados (ex.: DICOMDIR ou arquivo auxiliar)');
 }
 function decodeSlice(d){
- if(!['1.2.840.10008.1.2.1','1.2.840.10008.1.2'].includes(d.syntax))throw new Error('Série comprimida ou sintaxe incompatível: '+d.syntax);
+ const syntax=d.syntax||'1.2.840.10008.1.2.1';
+ if(!['1.2.840.10008.1.2.1','1.2.840.10008.1.2'].includes(syntax))throw new Error('Compressão ou Transfer Syntax não suportada ('+syntax+')');
+ if(d['00080060']&&d['00080060']!=='CT')throw new Error('Modalidade diferente de CT ('+d['00080060']+')');
  const rows=d['00280010'],cols=d['00280011'];
- if(!rows||!cols||d['00280100']!==16||d['00280002']!==1||d.pixelLength<rows*cols*2)throw new Error('Somente CT monocromático 16 bits, frame único, sem compressão.');
+ if(+d['00280008']>1)throw new Error('DICOM multiframe não suportado');
+ if(!rows||!cols||d['00280100']!==16||d['00280002']!==1||d.pixelLength<rows*cols*2)throw new Error('Pixel Data incompatível (esperado CT monocromático de 16 bits)');
+ const orient=(d['00200037']||'').split('\\').map(Number);
+ if(orient.length===6&&orient.every(Number.isFinite)){
+  const normalZ=orient[0]*orient[4]-orient[1]*orient[3];
+  if(Math.abs(normalZ)<.95)throw new Error('Série oblíqua ou não axial');
+ }
  const step=Math.max(1,Math.ceil(Math.max(rows,cols)/176)),w=Math.ceil(cols/step),h=Math.ceil(rows/step);
  const slope=parseFloat(d['00281053']||'1'),intercept=parseFloat(d['00281052']||'0');
  const dv=new DataView(d.buffer,d.pixelOffset,d.pixelLength),signed=d['00280103']===1;
  const pixels=new Int16Array(w*h);
  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-  const pos=((y*step)*cols+x*step)*2; const v=signed?dv.getInt16(pos,true):dv.getUint16(pos,true);
+  const pos=((y*step)*cols+x*step)*2;
+  const v=signed?dv.getInt16(pos,d.little):dv.getUint16(pos,d.little);
   pixels[y*w+x]=clamp(Math.round(v*slope+intercept),-32768,32767);
  }
  const ps=(d['00280030']||'1\\1').split('\\').map(Number);
  const ipp=(d['00200032']||'').split('\\').map(Number);
- return {pixels,w,h,step,spacing:[(ps[1]||1)*step,(ps[0]||1)*step],z:Number.isFinite(ipp[2])?ipp[2]:null,instance:Number(d['00200013']||0),orient:d['00200037']||''};
+ return{pixels,w,h,spacing:[(ps[1]||1)*step,(ps[0]||1)*step],
+  z:ipp.length===3&&Number.isFinite(ipp[2])?ipp[2]:null,instance:Number(d['00200013']||0),
+  orient:d['00200037']||'',series:d['0020000e']||'unknown',description:d['0008103e']||'Série sem descrição',step
+ };
+}
+function reportImport(){
+ const lines=['Arquivos recebidos: '+importStats.total,
+ 'Cortes DICOM de TC aceitos: '+importStats.parsed,
+ 'Séries detectadas: '+importedSeries.size];
+ for(const group of importedSeries.values())lines.push('• '+group.slices.length+' cortes · '+group.description+' · '+group.w+'×'+group.h);
+ if(importStats.rejected.size){lines.push('Arquivos ignorados:');for(const [why,n] of [...importStats.rejected].sort((a,b)=>b[1]-a[1]))lines.push('• '+n+'× '+why);}
+ $('importReport').textContent=lines.join('\n');
+}
+function showSeries(key){
+ const group=importedSeries.get(key);if(!group)return;
+ seed=null;mask=null;clearMesh();
+ let slices=group.slices;
+ slices.sort((a,b)=>a.z!=null&&b.z!=null?a.z-b.z:a.instance-b.instance);
+ const first=slices[0],stride=Math.max(1,Math.ceil(slices.length/180));
+ const list=slices.filter((_,i)=>i%stride===0);
+ const diffs=[];
+ for(let i=1;i<slices.length;i++){const a=slices[i-1].z,b=slices[i].z;if(a!=null&&b!=null&&Math.abs(b-a)>.01)diffs.push(Math.abs(b-a));}
+ diffs.sort((a,b)=>a-b);
+ const spacingZ=diffs.length?diffs[Math.floor(diffs.length/2)]*stride:2*stride;
+ vol={w:first.w,h:first.h,d:list.length,data:new Int16Array(first.w*first.h*list.length),spacing:[first.spacing[0],first.spacing[1],spacingZ],synthetic:false};
+ for(let z=0;z<list.length;z++)vol.data.set(list[z].pixels,z*first.w*first.h);
+ $('ctInfo').textContent=group.description+' · '+first.w+'×'+first.h+'×'+list.length+' voxels amostrados · espaçamento '+vol.spacing.map(v=>v.toFixed(2)).join(' / ')+' mm';
+ $('slice').disabled=false;$('slice').max=vol.d-1;$('slice').value=Math.max(0,Math.floor(vol.d*.22));$('segment').disabled=false;drawCT();
+ setStatus('Série importada. Clique no ar da traqueia em um corte axial para marcar a semente. Revise geometria, pixel spacing e orientação antes de usar.',false);
 }
 async function loadFiles(files){
- const arr=[...files].filter(f=>f.size>1000&&f.size<400e6);
- if(!arr.length){setStatus('Nenhum arquivo selecionado.',true);return}
- $('segment').disabled=true;seed=null;mask=null;clearMesh();setStatus('Lendo '+arr.length+' arquivo(s) DICOM no navegador...');
- let slices=[],errors={};
+ const input=[...files],arr=input.filter(f=>f.size>132&&f.size<=400e6);
+ importedSeries.clear();vol=null;seed=null;mask=null;clearMesh();
+ $('segment').disabled=true;$('seriesChoice').disabled=true;$('seriesChoice').innerHTML='<option>Procurando séries...</option>';
+ importStats.total=input.length;importStats.parsed=0;importStats.rejected=new Map();
+ for(const f of input)if(f.size<=132)bump('Arquivo vazio ou muito pequeno');else if(f.size>400e6)bump('Arquivo maior que 400 MB');
+ if(!input.length){setStatus('Selecione uma pasta ou arquivos de TC.',true);reportImport();return}
+ setStatus('Inspecionando '+arr.length+' arquivo(s). A seleção pode incluir pastas com imagens e arquivos auxiliares.');
  for(let i=0;i<arr.length;i++){
-  try{const buffer=await arr[i].arrayBuffer();const d=parseDicom(buffer);slices.push(decodeSlice(d))}
-  catch(e){const k=e.message||'Erro desconhecido';errors[k]=(errors[k]||0)+1}
-  if(i%8===0){setStatus('Lendo '+(i+1)+'/'+arr.length+' arquivo(s) · aceitos: '+slices.length);await new Promise(r=>setTimeout(r,0))}
+  const f=arr[i];
+  try{
+   if(/\.zip$/i.test(f.name))throw new Error('ZIP: extraia a pasta antes de importar');
+   const d=parseDicom(await f.arrayBuffer()),slice=decodeSlice(d);
+   const key=slice.series+'|'+slice.w+'x'+slice.h+'|'+slice.orient;
+   if(!importedSeries.has(key))importedSeries.set(key,{slices:[],description:slice.description,w:slice.w,h:slice.h});
+   importedSeries.get(key).slices.push(slice);importStats.parsed++;
+  }catch(e){bump(e.message||'Arquivo não reconhecido')}
+  if(i%12===0){setStatus('Inspecionando '+(i+1)+'/'+arr.length+' · cortes de TC: '+importStats.parsed);await new Promise(r=>setTimeout(r,0));}
  }
- if(slices.length<3){setStatus('Não foi possível formar um volume. Aceitos: '+slices.length+'. '+JSON.stringify(errors),true);return}
- const ref=slices[0];slices=slices.filter(s=>s.w===ref.w&&s.h===ref.h&&s.orient===ref.orient);
- if(slices.length<3){setStatus('Série com geometria heterogênea.',true);return}
- slices.sort((a,b)=>a.z!=null&&b.z!=null?a.z-b.z:a.instance-b.instance);
- const sliceStep=Math.max(1,Math.ceil(slices.length/180));
- const list=slices.filter((_,i)=>i%sliceStep===0);
- const dz=slices.length>1&&slices[0].z!=null&&slices[1].z!=null?Math.abs(slices[1].z-slices[0].z)*sliceStep:(Number.parseFloat('2')*sliceStep);
- vol={w:ref.w,h:ref.h,d:list.length,data:new Int16Array(ref.w*ref.h*list.length),spacing:[ref.spacing[0],ref.spacing[1],dz||2],synthetic:false};
- for(let z=0;z<list.length;z++)vol.data.set(list[z].pixels,z*ref.w*ref.h);
- $('ctInfo').textContent=ref.w+'×'+ref.h+'×'+list.length+' voxels amostrados · '+vol.spacing.map(v=>v.toFixed(1)).join(' / ')+' mm · DICOM';
- $('slice').disabled=false;$('slice').max=vol.d-1;$('slice').value=Math.max(0,Math.floor(vol.d*.2));$('segment').disabled=false;drawCT();
- setStatus('Volume carregado. Clique na luz traqueal para definir a semente. '+(Object.keys(errors).length?'Arquivos ignorados: '+JSON.stringify(errors):''));
+ // Avoid retaining every source DICOM after decoding.
+ reportImport();
+ const groups=[...importedSeries.entries()].filter(([,g])=>g.slices.length>=3).sort((a,b)=>b[1].slices.length-a[1].slices.length);
+ const choice=$('seriesChoice');choice.replaceChildren();
+ if(!groups.length){
+  choice.add(new Option('Nenhuma série compatível', ''));
+  setStatus('Nenhuma série axial de TC com pelo menos 3 cortes foi reconhecida. Veja o relatório de importação com os motivos de rejeição. Se houver arquivos comprimidos, converta para DICOM descomprimido antes.',true);
+  return;
+ }
+ for(const [key,g] of groups)choice.add(new Option(g.slices.length+' cortes · '+g.description+' ('+g.w+'×'+g.h+')',key));
+ choice.disabled=false;showSeries(groups[0][0]);reportImport();
+ if(importStats.rejected.size)setStatus('Série selecionada com sucesso. Outros arquivos foram ignorados; veja motivos em "Importação".',false);
 }
-$('dicomFiles').addEventListener('change',e=>loadFiles(e.target.files));$('dicomFolder').addEventListener('change',e=>loadFiles(e.target.files));
+$('seriesChoice').addEventListener('change',e=>showSeries(e.target.value));
+$('dicomFiles').addEventListener('change',e=>loadFiles(e.target.files).catch(err=>setStatus('Falha na importação: '+err.message,true)));
+$('dicomFolder').addEventListener('change',e=>loadFiles(e.target.files).catch(err=>setStatus('Falha na importação: '+err.message,true)));
 const index=(x,y,z)=>x+y*vol.w+z*vol.w*vol.h;
 function makeDemo(){
  const w=112,h=112,d=132,data=new Int16Array(w*h*d);data.fill(45);
