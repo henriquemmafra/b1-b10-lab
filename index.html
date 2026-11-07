@@ -71,16 +71,16 @@ footer{max-width:1380px;margin:0 auto;padding:12px 20px 28px;color:var(--muted);
 <div id="ctInfo" class="muted">Carregue uma série ou escolha o exemplo.</div>
 <canvas id="ctCanvas" width="256" height="256" aria-label="Corte axial para seleção de ponto inicial"></canvas>
 <label>Corte axial <span id="sliceLabel">—</span></label><input type="range" id="slice" min="0" max="0" value="0" disabled>
-<label>Limiar de ar <span id="huLabel">−600 UH</span></label><input type="range" id="hu" min="-900" max="-300" value="-600" step="25">
+<label>Limiar de ar <span id="huLabel">−750 UH</span></label><input type="range" id="hu" min="-900" max="-450" value="-750" step="25">
 <div class="row"><button id="segment" class="btn primary" disabled>Segmentar a partir do ponto</button></div>
-<p class="muted" style="margin:9px 0 0;font-size:12px">Clique dentro da traqueia no corte axial para marcar uma semente. A máscara por crescimento de região pode vazar para o parênquima; revise visualmente o resultado.</p>
+<p class="muted" style="margin:9px 0 0;font-size:12px">Clique <b>dentro da traqueia</b>, em um corte alto com luz arredondada. O rastreamento usa componentes de ar conectadas entre cortes e exclui grandes regiões pulmonares. Não garante segmentação completa e requer revisão.</p>
 </div>
 </div>
 <div class="stack">
 <div class="panel">
 <div class="row" style="justify-content:space-between"><h2 style="margin:0">3. Explorar o modelo</h2><span class="pill">Protótipo · não validado</span></div>
-<div class="row" style="margin:12px 0"><button class="btn primary" id="orbit">Visão 3D</button><button class="btn" id="fly">Visão interna</button><button class="btn" id="resetView">Recentrar</button></div>
-<div id="view3d"><div class="overlay" id="viewHint">Carregue a TC e segmente a luz da via aérea.<br>Ou inicie com o exemplo sintético.</div><div class="bottom">Visão 3D: arraste para girar, roda para zoom · Visão interna: W/S mover, setas orientar, Q/E subir/descer</div></div>
+<div class="row" style="margin:12px 0"><button class="btn primary" id="orbit">Visão 3D</button><button class="btn" id="fly">Visão interna</button><button class="btn" id="guided" disabled>▶ Percurso guiado</button><button class="btn" id="resetView">Recentrar</button></div>
+<div id="view3d"><div class="overlay" id="viewHint">Carregue a TC e segmente a luz da via aérea.<br>Ou inicie com o exemplo sintético.</div><div class="bottom">Visão 3D: arraste para girar, roda para zoom · Percurso guiado: seguir centro aproximado dos cortes · Visão interna: W/S mover, setas orientar, Q/E subir/descer</div></div>
 <div class="metrics"><span>Voxels segmentados: <b id="count">0</b></span><span>Estado: <b id="maskStatus">Aguardando</b></span></div>
 <div class="status" id="ctStatus" role="status">Aguardando volume.</div>
 </div>
@@ -142,7 +142,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.m
 const $=id=>document.getElementById(id);
 const tabs=document.querySelectorAll('[data-tab]');
 for(const t of tabs)t.addEventListener('click',()=>{tabs.forEach(b=>b.classList.toggle('active',b===t));$('ctPage').classList.toggle('hidden',t.dataset.tab!=='ct');$('ebusPage').classList.toggle('hidden',t.dataset.tab!=='ebus');if(t.dataset.tab==='ct')setTimeout(resize3D,50);else drawUS();});
-let vol=null,seed=null,mask=null,voxelCount=0,ctMode='orbit',camPos=null,fyaw=0,fpitch=0;
+let vol=null,seed=null,mask=null,voxelCount=0,ctMode='orbit',camPos=null,fyaw=0,fpitch=0,flightPath=[],tourOn=false,tourIndex=0,lastTourFrame=0;
 let scene,camera,renderer,mesh,orbitTarget=new THREE.Vector3(),yaw=.7,pitch=.35,dist=300;
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const setStatus=(s,warning=false)=>{$('ctStatus').textContent=s;$('ctStatus').classList.toggle('warn',warning)};
@@ -377,37 +377,119 @@ function drawCT(){
  if(seed&&vol&&+($('slice').value)===seed.z){ctx.strokeStyle='#4ff4dc';ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(seed.x,seed.y,5,0,Math.PI*2);ctx.moveTo(seed.x-9,seed.y);ctx.lineTo(seed.x+9,seed.y);ctx.moveTo(seed.x,seed.y-9);ctx.lineTo(seed.x,seed.y+9);ctx.stroke()}
 }
 $('ctCanvas').addEventListener('click',e=>{if(!vol)return;const r=e.currentTarget.getBoundingClientRect();seed={x:clamp(Math.floor((e.clientX-r.left)/r.width*vol.w),0,vol.w-1),y:clamp(Math.floor((e.clientY-r.top)/r.height*vol.h),0,vol.h-1),z:+$('slice').value};const hu=vol.data[index(seed.x,seed.y,seed.z)];setStatus('Semente em ('+[seed.x,seed.y,seed.z].join(', ')+'), '+hu+' UH. Ajuste o limiar e segmente.');drawCT()});
+// Rastreamento conservador 2D+Z: seleciona apenas lumen pequeno
+// em cada corte, ligado por sobreposicao ao corte precedente.
+// E uma heuristica de ensino, nao um algoritmo clinico validado.
 async function segment(){
- if(!vol||!seed)return setStatus('Marque uma semente na luz da via aérea.',true);
- const threshold=+$('hu').value,w=vol.w,h=vol.h,d=vol.d,n=w*h*d,start=index(seed.x,seed.y,seed.z);
- if(vol.data[start]>threshold)return setStatus('A semente ('+vol.data[start]+' UH) está acima do limiar. Clique no ar intraluminal.',true);
- $('segment').disabled=true;setStatus('Crescimento de região 3D em execução...');
- await new Promise(r=>setTimeout(r,25));
- const visited=new Uint8Array(n),queue=new Int32Array(n),out=new Uint8Array(n);let front=0,back=1,cap=140000,limited=false;queue[0]=start;visited[start]=1;
- const sx=seed.x,sy=seed.y,rx=w*.46,ry=h*.46,wh=w*h;
- while(front<back&&front<cap){
-  const i=queue[front++],z=Math.floor(i/wh),rem=i-z*wh,y=Math.floor(rem/w),x=rem-y*w;
-  out[i]=1;
-  const neighbors=[[x-1,y,z],[x+1,y,z],[x,y-1,z],[x,y+1,z],[x,y,z-1],[x,y,z+1]];
-  for(const [nx,ny,nz]of neighbors){
-   if(nx<0||ny<0||nz<0||nx>=w||ny>=h||nz>=d||Math.abs(nx-sx)>rx||Math.abs(ny-sy)>ry)continue;
-   const ni=nx+ny*w+nz*wh;
-   if(visited[ni])continue;visited[ni]=1;
-   if(vol.data[ni]<=threshold&&back<n){queue[back++]=ni}
+ if(!vol||!seed)return setStatus('Clique primeiro na luz da traqueia para marcar a semente.',true);
+ const threshold=+$('hu').value,w=vol.w,h=vol.h,d=vol.d,plane=w*h,n=plane*d,start=index(seed.x,seed.y,seed.z);
+ if(vol.data[start]>threshold)return setStatus('Semente ('+vol.data[start]+' UH) acima do limiar. Selecione o ar da luz traqueal.',true);
+ $('segment').disabled=true;$('guided').disabled=true;mask=null;clearMesh();
+ setStatus('Rastreando componentes aéreos por corte e bloqueando grandes regiões de parênquima...');
+ await new Promise(r=>setTimeout(r,20));
+ try{
+  const pixelArea=vol.spacing[0]*vol.spacing[1],maps=new Map(),selected=new Map();
+  const queue=new Int32Array(plane);
+  const getComponents=z=>{
+   if(maps.has(z))return maps.get(z);
+   const labels=new Int32Array(plane),comps=[null],base=z*plane;
+   for(let p=0;p<plane;p++){
+    if(labels[p]!==0)continue;
+    if(vol.data[base+p]>threshold){labels[p]=-1;continue}
+    const id=comps.length;let front=0,back=1;
+    queue[0]=p;labels[p]=id;let sumX=0,sumY=0,minX=w,maxX=0,minY=h,maxY=0,border=false;
+    while(front<back){
+     const q=queue[front++],y=Math.floor(q/w),x=q-y*w;
+     sumX+=x;sumY+=y;if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;
+     if(x===0||y===0||x===w-1||y===h-1)border=true;
+     const ns=[x>0?q-1:-1,x<w-1?q+1:-1,y>0?q-w:-1,y<h-1?q+w:-1];
+     for(const np of ns)if(np>=0&&labels[np]===0){
+      if(vol.data[base+np]<=threshold){labels[np]=id;queue[back++]=np}
+      else labels[np]=-1;
+     }
+    }
+    comps.push({id,area:back,mm2:back*pixelArea,x:sumX/back,y:sumY/back,
+      width:(maxX-minX+1)*vol.spacing[0],height:(maxY-minY+1)*vol.spacing[1],border});
+   }
+   const item={labels,comps};maps.set(z,item);return item;
+  };
+  const initial=getComponents(seed.z),seedId=initial.labels[seed.x+seed.y*w],anchor=initial.comps[seedId];
+  if(!anchor)throw new Error('Não encontrei uma luz aérea na semente.');
+  // Most normal tracheas have an axial cross section well under 500 mm2.
+  // Reject oversized air components before any 3D propagation.
+  const maxArea=Math.max(500,Math.min(850,anchor.mm2*3.2)),maxWidth=58;
+  const valid=c=>c&&!c.border&&c.mm2<=maxArea&&c.width<=maxWidth&&c.height<=maxWidth&&c.area>=2;
+  if(!valid(anchor))throw new Error('A região escolhida é grande demais ('+Math.round(anchor.mm2)+' mm²) ou toca a borda. Clique na luz da traqueia em um corte mais alto, não no parênquima pulmonar.');
+  selected.set(seed.z,new Set([seedId]));
+  let rejected=0,lastPercent=0;
+  const walk=async dir=>{
+   let prevZ=seed.z,active=new Set([seedId]);
+   for(let z=seed.z+dir;z>=0&&z<d;z+=dir){
+    const prev=getComponents(prevZ),now=getComponents(z),candidates=new Set();
+    // Find components whose axial lumen overlaps a previously accepted
+    // lumen, allowing a two-voxel lateral offset between slabs.
+    for(let p=0;p<plane;p++){
+     if(!active.has(prev.labels[p]))continue;
+     const y=Math.floor(p/w),x=p-y*w;
+     for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+      const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=w||ny>=h)continue;
+      const id=now.labels[nx+ny*w];if(id>0)candidates.add(id);
+     }
+    }
+    const next=new Set();
+    for(const id of candidates){
+     if(valid(now.comps[id]))next.add(id);
+     else rejected++;
+    }
+    if(!next.size)break;
+    selected.set(z,next);active=next;prevZ=z;
+    if(Math.abs(z-seed.z)%12===0){
+     const percent=Math.round((selected.size/d)*100);
+     if(percent!==lastPercent){setStatus('Rastreando luz central: '+selected.size+' cortes selecionados...');lastPercent=percent}
+     await new Promise(r=>setTimeout(r,0));
+    }
+   }
+  };
+  await walk(-1);await walk(1);
+  const out=new Uint8Array(n),pathByZ=new Map();let voxels=0,maskSlices=0;
+  for(const [z,ids] of selected){
+   const map=getComponents(z),base=z*plane,cs=[...ids].map(id=>map.comps[id]);
+   pathByZ.set(z,cs);maskSlices++;
+   for(let i=0;i<plane;i++)if(ids.has(map.labels[i])){out[base+i]=1;voxels++}
   }
-  if(front%14000===0)await new Promise(r=>setTimeout(r,0));
- }
- limited=front>=cap&&front<back;mask=out;voxelCount=front;buildMesh();
- $('count').textContent=voxelCount.toLocaleString('pt-BR');$('maskStatus').textContent=limited?'Limitada':'Gerada';$('segment').disabled=false;
- const description='Máscara de '+voxelCount.toLocaleString('pt-BR')+' voxels. '+(limited?'ATENÇÃO: interrompida no limite de segurança; pode haver vazamento para o pulmão. ':'')+'Examine o modelo e a semente: segmentação preliminar e não validada.';
- setStatus(description,limited);$('details').textContent=description+' A navegação interna é exploratória, não uma reprodução fiel da broncoscopia. Não é possível inferir linfonodos da máscara das vias aéreas.';
+  if(voxels<30||maskSlices<3)throw new Error('A luz não pôde ser acompanhada em cortes suficientes ('+maskSlices+'). Tente outra semente ou série com cortes mais finos.');
+  mask=out;voxelCount=voxels;
+  // A simplified "main" centerline uses the nearest selected cross section.
+  // It does not resolve lobar branch identities.
+  const up=[...pathByZ.keys()].filter(z=>z>seed.z).length,down=[...pathByZ.keys()].filter(z=>z<seed.z).length;
+  const direction=up>=down?1:-1,chosen=[];
+  let px=seed.x,py=seed.y;
+  for(let z=seed.z;z>=0&&z<d;z+=direction){
+   const cs=pathByZ.get(z);if(!cs)break;
+   const c=cs.slice().sort((a,b)=>((a.x-px)**2+(a.y-py)**2)-((b.x-px)**2+(b.y-py)**2))[0];
+   px=c.x;py=c.y;
+   chosen.push(new THREE.Vector3((px+.5-w/2)*vol.spacing[0],(h/2-py-.5)*vol.spacing[1],(z+.5-d/2)*vol.spacing[2]));
+  }
+  flightPath=chosen;
+  $('count').textContent=voxels.toLocaleString('pt-BR');$('maskStatus').textContent='Restrita · '+maskSlices+' cortes';
+  buildMesh();
+  $('guided').disabled=flightPath.length<3;
+  const msg='Reconstrução preliminar: '+voxels.toLocaleString('pt-BR')+' voxels em '+maskSlices+' cortes. '+(rejected?'Bloqueados '+rejected+' componentes de ar por tamanho/forma. ':'')+
+   'A imagem 3D deve aparecer ao lado. Clique em "▶ Percurso guiado" para navegar pelo trajeto central aproximado. Revise o resultado em todos os planos; pode faltar parte da árvore brônquica.';
+  setStatus(msg,true);
+  $('details').textContent='Segmentação conservadora por componentes axiais, sem validação. Se a árvore estiver incompleta, a TC pode precisar de segmentação profissional (3D Slicer / TotalSegmentator) e importação de malha. O percurso guiado é apenas uma linha central estimada: não reproduz uma broncoscopia completa.';
+ }catch(e){
+  mask=null;voxelCount=0;clearMesh();
+  $('maskStatus').textContent='Falhou';setStatus('Não foi possível gerar uma árvore confiável: '+e.message,true);
+ }finally{$('segment').disabled=false}
 }
-$('segment').addEventListener('click',()=>segment().catch(e=>{setStatus('Erro: '+e.message,true);$('segment').disabled=false}));
+$('segment').addEventListener('click',segment);
 function init3D(){
  const el=$('view3d');scene=new THREE.Scene();scene.background=new THREE.Color('#061018');camera=new THREE.PerspectiveCamera(62,1,.2,2500);
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));
  el.insertBefore(renderer.domElement,el.firstChild);
- scene.add(new THREE.HemisphereLight(0xaee8ff,0x38211c,2.1));
+ scene.add(new THREE.HemisphereLight(0xffe7dc,0x4a2829,3.0));scene.add(new THREE.AmbientLight(0xffffff,.5));
+ const headlight=new THREE.PointLight(0xffe2d0,13,100);scene.add(headlight);
  const light=new THREE.DirectionalLight(0xffffff,2.1);light.position.set(200,180,220);scene.add(light);
  let dragging=false,prevX=0,prevY=0;
  el.addEventListener('pointerdown',e=>{if(e.target!==renderer.domElement)return;dragging=true;prevX=e.clientX;prevY=e.clientY;el.setPointerCapture(e.pointerId)});
@@ -415,14 +497,31 @@ function init3D(){
  el.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-prevX,dy=e.clientY-prevY;prevX=e.clientX;prevY=e.clientY;if(ctMode==='orbit'){yaw-=dx*.007;pitch=clamp(pitch+dy*.007,-1.45,1.45)}else{fyaw-=dx*.005;fpitch=clamp(fpitch-dy*.005,-1.5,1.5)}});
  el.addEventListener('wheel',e=>{e.preventDefault();if(ctMode==='orbit')dist=clamp(dist*Math.exp(e.deltaY*.001),30,1200)},{passive:false});
  window.addEventListener('resize',resize3D);
- function frame(){requestAnimationFrame(frame);if(!renderer)return;
+ function frame(t){requestAnimationFrame(frame);if(!renderer)return;
+ if(tourOn&&flightPath.length>2&&t-lastTourFrame>70){
+  tourIndex=Math.min(tourIndex+.12,flightPath.length-1.01);lastTourFrame=t;
+  if(tourIndex>=flightPath.length-1.02){tourOn=false;$('guided').textContent='▶ Reiniciar percurso'}
+ }
  if(ctMode==='orbit')camera.position.copy(orbitTarget).add(new THREE.Vector3(dist*Math.sin(yaw)*Math.cos(pitch),dist*Math.sin(pitch),dist*Math.cos(yaw)*Math.cos(pitch))),camera.lookAt(orbitTarget);
- else if(camPos){camera.position.copy(camPos);const dir=new THREE.Vector3(Math.sin(fyaw)*Math.cos(fpitch),Math.sin(fpitch),Math.cos(fyaw)*Math.cos(fpitch));camera.lookAt(camPos.clone().add(dir));}
- renderer.render(scene,camera)}
+ else if(camPos){
+  if(tourOn){
+   const i=Math.floor(tourIndex),alpha=tourIndex-i;
+   camPos.copy(flightPath[i]).lerp(flightPath[Math.min(i+1,flightPath.length-1)],alpha);
+   camera.position.copy(camPos);
+   camera.lookAt(flightPath[Math.min(i+2,flightPath.length-1)]);
+  }else{
+   camera.position.copy(camPos);const dir=new THREE.Vector3(Math.sin(fyaw)*Math.cos(fpitch),Math.sin(fpitch),Math.cos(fyaw)*Math.cos(fpitch));camera.lookAt(camPos.clone().add(dir));
+  }
+ }
+ headlight.position.copy(camera.position);renderer.render(scene,camera)}
  frame();resize3D();
 }
 function resize3D(){if(!renderer)return;const e=$('view3d');const w=e.clientWidth,h=e.clientHeight;if(w<1||h<1)return;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
-function clearMesh(){if(mesh&&scene){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();mesh=null}}
+function clearMesh(){
+ tourOn=false;flightPath=[];tourIndex=0;
+ $('guided').disabled=true;$('guided').textContent='▶ Percurso guiado';
+ if(mesh&&scene){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();mesh=null}
+}
 function buildMesh(){
  clearMesh();if(!vol||!mask)return;
  const {w,h,d,spacing}=vol,[sx,sy,sz]=spacing;
@@ -443,20 +542,33 @@ function buildMesh(){
   }
  }
  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(P,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));geometry.computeBoundingSphere();
- const material=new THREE.MeshStandardMaterial({color:0xc17d82,side:THREE.DoubleSide,roughness:.84,metalness:0,flatShading:true});
+ const material=new THREE.MeshStandardMaterial({color:0xc8868d,emissive:0x200d12,emissiveIntensity:.3,side:THREE.DoubleSide,roughness:.87,metalness:0,flatShading:true});
  mesh=new THREE.Mesh(geometry,material);scene.add(mesh);
- orbitTarget.set(0,0,0);dist=Math.max(170,Math.hypot(w*sx,h*sy,d*sz)*1.2);
+ geometry.computeBoundingBox();
+ if(geometry.boundingBox){geometry.boundingBox.getCenter(orbitTarget);
+  const sz3=new THREE.Vector3();geometry.boundingBox.getSize(sz3);
+  dist=Math.max(70,sz3.length()*1.2);
+ }else{orbitTarget.set(0,0,0);dist=270}
  setCtMode('orbit');
- $('viewHint').innerHTML='Superfície extraída do volume '+(vol.synthetic?'<strong>sintético</strong>':'DICOM')+'.<br>Faces de voxels com renderização simplificada.';
+ $('viewHint').innerHTML='Reconstrução restrita '+(vol.synthetic?'(modelo sintético)':'(DICOM real)')+'.<br>Use "Percurso guiado" para percorrer o lúmen.<br><strong>Não validada para uso clínico.</strong>';
 }
 function voxelFromPos(p){const x=Math.floor(p.x/vol.spacing[0]+vol.w/2),y=Math.floor(vol.h/2-p.y/vol.spacing[1]),z=Math.floor(p.z/vol.spacing[2]+vol.d/2);return{x,y,z}}
 function inside(p){if(!vol||!mask)return false;const{x,y,z}=voxelFromPos(p);return x>=0&&x<vol.w&&y>=0&&y<vol.h&&z>=0&&z<vol.d&&mask[index(x,y,z)]===1}
 function setCtMode(mode){if(!vol||!mask){setStatus('Primeiro gere uma máscara de vias aéreas.',true);return}
- ctMode=mode;$('orbit').classList.toggle('primary',mode==='orbit');$('fly').classList.toggle('primary',mode==='fly');
- if(mode==='fly'){const s=seed||{x:vol.w/2,y:vol.h/2,z:0};camPos=new THREE.Vector3((s.x+.5-vol.w/2)*vol.spacing[0],(vol.h/2-s.y-.5)*vol.spacing[1],(s.z+.5-vol.d/2)*vol.spacing[2]);fyaw=0;fpitch=0;if(!inside(camPos))setStatus('Ponto inicial fora da máscara. Escolha a semente dentro da luz.',true);else setStatus('Visão interna exploratória: W/S avança/recua, setas orientam, Q/E deslocam verticalmente. Movimento restrito à máscara.');}
+ tourOn=false;$('guided').textContent='▶ Percurso guiado';ctMode=mode;$('orbit').classList.toggle('primary',mode==='orbit');$('fly').classList.toggle('primary',mode==='fly');
+ if(mode==='fly'){const s=seed||{x:vol.w/2,y:vol.h/2,z:0};camPos=flightPath[0]?.clone()||new THREE.Vector3((s.x+.5-vol.w/2)*vol.spacing[0],(vol.h/2-s.y-.5)*vol.spacing[1],(s.z+.5-vol.d/2)*vol.spacing[2]);fyaw=flightPath[1]&&flightPath[1].z<camPos.z?Math.PI:0;fpitch=0;if(!inside(camPos))setStatus('Ponto inicial fora da máscara. Escolha a semente dentro da luz.',true);else setStatus('Visão interna exploratória: W/S avança/recua, setas orientam, Q/E deslocam verticalmente. Movimento restrito à máscara.');}
 }
 $('orbit').addEventListener('click',()=>setCtMode('orbit'));$('fly').addEventListener('click',()=>setCtMode('fly'));
-$('resetView').addEventListener('click',()=>{yaw=.7;pitch=.35;if(mask)setCtMode(ctMode)});
+$('guided').addEventListener('click',()=>{
+ if(!mask||flightPath.length<3){setStatus('Não foi possível construir percurso guiado suficiente.',true);return}
+ if(tourOn){tourOn=false;$('guided').textContent='▶ Continuar percurso';return}
+ if(tourIndex>=flightPath.length-1.1)tourIndex=0;
+ ctMode='fly';camPos=flightPath[0].clone();tourOn=true;
+ $('orbit').classList.remove('primary');$('fly').classList.add('primary');
+ $('guided').textContent='❚❚ Pausar percurso';
+ setStatus('Percurso guiado em andamento. Esta trajetória é aproximada e não reconhece automaticamente os segmentos brônquicos.');
+});
+$('resetView').addEventListener('click',()=>{yaw=.7;pitch=.35;tourOn=false;tourIndex=0;$('guided').textContent='▶ Percurso guiado';if(mask)setCtMode(ctMode)});
 window.addEventListener('keydown',e=>{if(ctMode!=='fly'||$('ctPage').classList.contains('hidden')||!camPos||!mask||['INPUT','TEXTAREA'].includes(document.activeElement.tagName))return;
  const k=e.key.toLowerCase();let delta=null;const forward=new THREE.Vector3(Math.sin(fyaw)*Math.cos(fpitch),Math.sin(fpitch),Math.cos(fyaw)*Math.cos(fpitch));
  if(k==='arrowleft')fyaw+=.075;if(k==='arrowright')fyaw-=.075;if(k==='arrowup')fpitch=clamp(fpitch+.07,-1.5,1.5);if(k==='arrowdown')fpitch=clamp(fpitch-.07,-1.5,1.5);
